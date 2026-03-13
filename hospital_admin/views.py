@@ -38,8 +38,18 @@ from .utils import searchMedicines
 @cache_control(no_cache=True, must_revalidate=True, no_store=True)
 def admin_dashboard(request):
     # admin = Admin_Information.objects.get(user_id=pk)
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
+    if request.user.is_hospital_admin or request.user.is_superuser:
+        # Ensure there is an Admin_Information record for this user
+        try:
+            user = Admin_Information.objects.get(user=request.user)
+        except Admin_Information.DoesNotExist:
+            user = Admin_Information.objects.create(
+                user=request.user,
+                username=request.user.username,
+                name=request.user.get_full_name() or request.user.username,
+                email=request.user.email,
+                role='hospital',
+            )
         total_patient_count = Patient.objects.annotate(count=Count('patient_id'))
         total_doctor_count = Doctor_Information.objects.annotate(count=Count('doctor_id'))
         total_pharmacist_count = Pharmacist.objects.annotate(count=Count('pharmacist_id'))
@@ -113,14 +123,16 @@ def admin_login(request):
 
         try:
             user = User.objects.get(username=username)
-        except:
+        except User.DoesNotExist:
             messages.error(request, 'Username does not exist')
+            return render(request, 'hospital_admin/login.html')
 
         user = authenticate(username=username, password=password)
 
         if user is not None:
             login(request, user)
-            if user.is_hospital_admin:
+            # Treat hospital admins and Django superusers as valid admins
+            if user.is_hospital_admin or user.is_superuser:
                 messages.success(request, 'User logged in')
                 return redirect('admin-dashboard')
             elif user.is_labworker:
@@ -130,10 +142,10 @@ def admin_login(request):
                 messages.success(request, 'User logged in')
                 return redirect('pharmacist-dashboard')
             else:
-                return redirect('admin-logout')
+                messages.error(request, 'You are not authorized to access the admin dashboard')
+                return redirect('admin_login')
         else:
             messages.error(request, 'Invalid username or password')
-        
 
     return render(request, 'hospital_admin/login.html')
 
@@ -186,8 +198,10 @@ def lock_screen(request):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def patient_list(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view patients')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
     patients = Patient.objects.all()
     return render(request, 'hospital_admin/patient-list.html', {'all': patients, 'admin': user})
 
@@ -208,7 +222,10 @@ def transactions_list(request):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def emergency_details(request):
-    user = Admin_Information.objects.get(user=request.user)
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view emergency details')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
     hospitals = Hospital_Information.objects.all()
     context = { 'admin': user, 'all': hospitals}
     return render(request, 'hospital_admin/emergency.html', context)
@@ -216,7 +233,10 @@ def emergency_details(request):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def hospital_list(request):
-    user = Admin_Information.objects.get(user=request.user)
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view hospitals')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
     hospitals = Hospital_Information.objects.all()
     context = { 'admin': user, 'hospitals': hospitals}
     return render(request, 'hospital_admin/hospital-list.html', context)
@@ -256,61 +276,72 @@ def hospital_admin_profile(request, pk):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def add_hospital(request):
-    if  request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
+    # Allow both hospital admins and superusers to add hospitals
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to add hospitals')
+        return redirect('hospital-list')
 
-        if request.method == 'POST':
-            hospital = Hospital_Information()
-            
-            if 'featured_image' in request.FILES:
-                featured_image = request.FILES['featured_image']
-            else:
-                featured_image = "departments/default.png"
-            
-            hospital_name = request.POST.get('hospital_name')
-            address = request.POST.get('address')
-            description = request.POST.get('description')
-            email = request.POST.get('email')
-            phone_number = request.POST.get('phone_number') 
-            hospital_type = request.POST.get('type')
-            specialization_name = request.POST.getlist('specialization')
-            department_name = request.POST.getlist('department')
-            service_name = request.POST.getlist('service')
-            
+    user = Admin_Information.objects.filter(user=request.user).first()
+
+    if request.method == 'POST':
+        hospital = Hospital_Information()
         
-            hospital.name = hospital_name
-            hospital.description = description
-            hospital.address = address
-            hospital.email = email
-            hospital.phone_number =phone_number
-            hospital.featured_image=featured_image 
-            hospital.hospital_type=hospital_type
-            
-            # print(department_name[0])
-         
-            hospital.save()
-            
-            for i in range(len(department_name)):
-                departments = hospital_department(hospital=hospital)
-                # print(department_name[i])
-                departments.hospital_department_name = department_name[i]
-                departments.save()
-                
-            for i in range(len(specialization_name)):
-                specializations = specialization(hospital=hospital)
-                specializations.specialization_name=specialization_name[i]
-                specializations.save()
-                
-            for i in range(len(service_name)):
-                services = service(hospital=hospital)
-                services.service_name = service_name[i]
-                services.save()
-            
-            messages.success(request, 'Hospital Added')
-            return redirect('hospital-list')
+        if 'featured_image' in request.FILES:
+            featured_image = request.FILES['featured_image']
+        else:
+            featured_image = "departments/default.png"
+        
+        hospital_name = request.POST.get('hospital_name')
+        address = request.POST.get('address')
+        description = request.POST.get('description')
+        email = request.POST.get('email')
+        phone_number = request.POST.get('phone_number') 
+        hospital_type = request.POST.get('type')
+        specialization_name = request.POST.getlist('specialization')
+        department_name = request.POST.getlist('department')
+        service_name = request.POST.getlist('service')
+        
+        hospital.name = hospital_name
+        hospital.description = description
+        hospital.address = address
+        hospital.email = email
 
-        context = { 'admin': user}
-        return render(request, 'hospital_admin/add-hospital.html',context)
+        # phone_number is an IntegerField; normalise to digits
+        if phone_number:
+            import re
+            digits_only = re.sub(r'\D', '', phone_number)
+            hospital.phone_number = int(digits_only) if digits_only else None
+        else:
+            hospital.phone_number = None
+
+        hospital.featured_image = featured_image 
+        hospital.hospital_type = hospital_type
+     
+        hospital.save()
+        
+        for name in department_name:
+            hospital_department.objects.create(
+                hospital=hospital,
+                hospital_department_name=name,
+            )
+            
+        for name in specialization_name:
+            specialization.objects.create(
+                hospital=hospital,
+                specialization_name=name,
+            )
+            
+        for name in service_name:
+            service.objects.create(
+                hospital=hospital,
+                service_name=name,
+            )
+        
+        messages.success(request, 'Hospital Added')
+        return redirect('hospital-list')
+
+    context = {'admin': user}
+    return render(request, 'hospital_admin/add-hospital.html', context)
 
 
 # def edit_hospital(request, pk):
@@ -320,68 +351,81 @@ def add_hospital(request):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def edit_hospital(request, pk):
-    if  request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        hospital = Hospital_Information.objects.get(hospital_id=pk)
-        old_featured_image = hospital.featured_image
+    # Allow both hospital admins and superusers to edit hospitals
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to edit hospitals')
+        return redirect('hospital-list')
 
-        if request.method == 'GET':
-            specializations = specialization.objects.filter(hospital=hospital)
-            services = service.objects.filter(hospital=hospital)
-            departments = hospital_department.objects.filter(hospital=hospital)
-            context = {'hospital': hospital, 'specializations': specializations, 'services': services,'departments':departments, 'admin': user}
-            return render(request, 'hospital_admin/edit-hospital.html',context)
+    user = Admin_Information.objects.filter(user=request.user).first()
+    hospital = Hospital_Information.objects.get(hospital_id=pk)
+    old_featured_image = hospital.featured_image
 
-        elif request.method == 'POST':
-            if 'featured_image' in request.FILES:
-                featured_image = request.FILES['featured_image']
-            else:
-                featured_image = old_featured_image
-                               
-            hospital_name = request.POST.get('hospital_name')
-            address = request.POST.get('address')
-            description = request.POST.get('description')
-            email = request.POST.get('email')
-            phone_number = request.POST.get('phone_number') 
-            hospital_type = request.POST.get('type')
+    if request.method == 'GET':
+        specializations = specialization.objects.filter(hospital=hospital)
+        services = service.objects.filter(hospital=hospital)
+        departments = hospital_department.objects.filter(hospital=hospital)
+        context = {
+            'hospital': hospital,
+            'specializations': specializations,
+            'services': services,
+            'departments': departments,
+            'admin': user,
+        }
+        return render(request, 'hospital_admin/edit-hospital.html', context)
+
+    elif request.method == 'POST':
+        if 'featured_image' in request.FILES:
+            featured_image = request.FILES['featured_image']
+        else:
+            featured_image = old_featured_image
+                           
+        hospital_name = request.POST.get('hospital_name')
+        address = request.POST.get('address')
+        description = request.POST.get('description')
+        email = request.POST.get('email')
+        phone_number = request.POST.get('phone_number')
+        hospital_type = request.POST.get('type')
+        
+        specialization_name = request.POST.getlist('specialization')
+        department_name = request.POST.getlist('department')
+        service_name = request.POST.getlist('service')
+
+        hospital.name = hospital_name
+        hospital.description = description
+        hospital.address = address
+        hospital.email = email
+        # phone_number is an IntegerField in the model, so strip non-digits
+        if phone_number:
+            import re
+            digits_only = re.sub(r'\D', '', phone_number)
+            hospital.phone_number = int(digits_only) if digits_only else None
+        else:
+            hospital.phone_number = None
+        hospital.featured_image = featured_image 
+        hospital.hospital_type = hospital_type
+
+        hospital.save()
+
+        # Recreate related specializations, services, and departments
+        specialization.objects.filter(hospital=hospital).delete()
+        service.objects.filter(hospital=hospital).delete()
+        hospital_department.objects.filter(hospital=hospital).delete()
+
+        for name in specialization_name:
+            specialization.objects.create(hospital=hospital, specialization_name=name)
+
+        for name in service_name:
+            service.objects.create(hospital=hospital, service_name=name)
             
-            specialization_name = request.POST.getlist('specialization')
-            department_name = request.POST.getlist('department')
-            service_name = request.POST.getlist('service')
+        for name in department_name:
+            hospital_department.objects.create(hospital=hospital, hospital_department_name=name)
 
-            hospital.name = hospital_name
-            hospital.description = description
-            hospital.address = address
-            hospital.email = email
-            hospital.phone_number =phone_number
-            hospital.featured_image =featured_image 
-            hospital.hospital_type =hospital_type
-            
-            # specializations.specialization_name=specialization_name
-            # services.service_name = service_name
-            # departments.hospital_department_name = department_name 
+        messages.success(request, 'Hospital Updated')
+        return redirect('hospital-list')
 
-            hospital.save()
-
-            # Specialization
-            for i in range(len(specialization_name)):
-                specializations = specialization(hospital=hospital)
-                specializations.specialization_name = specialization_name[i]
-                specializations.save()
-
-            # Experience
-            for i in range(len(service_name)):
-                services = service(hospital=hospital)
-                services.service_name = service_name[i]
-                services.save()
-                
-            for i in range(len(department_name)):
-                departments = hospital_department(hospital=hospital)
-                departments.hospital_department_name = department_name[i]
-                departments.save()
-
-            messages.success(request, 'Hospital Updated')
-            return redirect('hospital-list')
+    # Fallback (should not normally be hit)
+    messages.error(request, 'Unsupported request method')
+    return redirect('hospital-list')
 
 @csrf_exempt
 @login_required(login_url='admin_login')
@@ -558,26 +602,25 @@ def create_report(request, pk):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def add_pharmacist(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        form = PharmacistCreationForm()
-     
-        if request.method == 'POST':
-            form = PharmacistCreationForm(request.POST)
-            if form.is_valid():
-                # form.save(), commit=False --> don't save to database yet (we have a chance to modify object)
-                user = form.save(commit=False)
-                user.is_pharmacist = True
-                user.save()
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to add pharmacists')
+        return redirect('admin-dashboard')
 
-                messages.success(request, 'Pharmacist account was created!')
+    user = Admin_Information.objects.filter(user=request.user).first()
+    form = PharmacistCreationForm()
+ 
+    if request.method == 'POST':
+        form = PharmacistCreationForm(request.POST)
+        if form.is_valid():
+            pharmacist_user = form.save(commit=False)
+            pharmacist_user.is_pharmacist = True
+            pharmacist_user.save()
 
-                # After user is created, we can log them in
-                #login(request, user)
-                return redirect('pharmacist-list')
-            else:
-                messages.error(request, 'An error has occurred during registration')
-    
+            messages.success(request, 'Pharmacist account was created!')
+            return redirect('pharmacist-list')
+        else:
+            messages.error(request, 'An error has occurred during registration')
+ 
     context = {'form': form, 'admin': user}
     return render(request, 'hospital_admin/add-pharmacist.html', context)
   
@@ -713,106 +756,112 @@ def delete_medicine(request, pk):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def add_lab_worker(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        
-        form = LabWorkerCreationForm()
-     
-        if request.method == 'POST':
-            form = LabWorkerCreationForm(request.POST)
-            if form.is_valid():
-                # form.save(), commit=False --> don't save to database yet (we have a chance to modify object)
-                user = form.save(commit=False)
-                user.is_labworker = True
-                user.save()
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to add lab workers')
+        return redirect('admin-dashboard')
 
-                messages.success(request, 'Clinical Laboratory Technician account was created!')
+    user = Admin_Information.objects.filter(user=request.user).first()
+    form = LabWorkerCreationForm()
+ 
+    if request.method == 'POST':
+        form = LabWorkerCreationForm(request.POST)
+        if form.is_valid():
+            lab_user = form.save(commit=False)
+            lab_user.is_labworker = True
+            lab_user.save()
 
-                # After user is created, we can log them in
-                #login(request, user)
-                return redirect('lab-worker-list')
-            else:
-                messages.error(request, 'An error has occurred during registration')
-    
+            messages.success(request, 'Clinical Laboratory Technician account was created!')
+            return redirect('lab-worker-list')
+        else:
+            messages.error(request, 'An error has occurred during registration')
+ 
     context = {'form': form, 'admin': user}
     return render(request, 'hospital_admin/add-lab-worker.html', context)  
 
 @csrf_exempt
 @login_required(login_url='admin_login')
 def view_lab_worker(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        lab_workers = Clinical_Laboratory_Technician.objects.all()
-        
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view lab workers')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
+    lab_workers = Clinical_Laboratory_Technician.objects.all()
     return render(request, 'hospital_admin/lab-worker-list.html', {'lab_workers': lab_workers, 'admin': user})
 
 @csrf_exempt
 @login_required(login_url='admin_login')
 def view_pharmacist(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        pharmcists = Pharmacist.objects.all()
-        
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view pharmacists')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
+    pharmcists = Pharmacist.objects.all()
     return render(request, 'hospital_admin/pharmacist-list.html', {'pharmacist': pharmcists, 'admin': user})
 
 @csrf_exempt
 @login_required(login_url='admin_login')
 def edit_lab_worker(request, pk):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        lab_worker = Clinical_Laboratory_Technician.objects.get(technician_id=pk)
-        
-        if request.method == 'POST':
-            if 'featured_image' in request.FILES:
-                featured_image = request.FILES['featured_image']
-            else:
-                featured_image = "technician/user-default.png"
-                
-            name = request.POST.get('name')
-            email = request.POST.get('email')     
-            phone_number = request.POST.get('phone_number')
-            age = request.POST.get('age')  
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to edit lab workers')
+        return redirect('admin-dashboard')
+
+    user = Admin_Information.objects.filter(user=request.user).first()
+    lab_worker = Clinical_Laboratory_Technician.objects.get(technician_id=pk)
     
-            lab_worker.name = name
-            lab_worker.email = email
-            lab_worker.phone_number = phone_number
-            lab_worker.age = age
-            lab_worker.featured_image = featured_image
-    
-            lab_worker.save()
+    if request.method == 'POST':
+        if 'featured_image' in request.FILES:
+            featured_image = request.FILES['featured_image']
+        else:
+            featured_image = "technician/user-default.png"
             
-            messages.success(request, 'Clinical Laboratory Technician account updated!')
-            return redirect('lab-worker-list')
+        name = request.POST.get('name')
+        email = request.POST.get('email')     
+        phone_number = request.POST.get('phone_number')
+        age = request.POST.get('age')  
+
+        lab_worker.name = name
+        lab_worker.email = email
+        lab_worker.phone_number = phone_number
+        lab_worker.age = age
+        lab_worker.featured_image = featured_image
+
+        lab_worker.save()
+        
+        messages.success(request, 'Clinical Laboratory Technician account updated!')
+        return redirect('lab-worker-list')
         
     return render(request, 'hospital_admin/edit-lab-worker.html', {'lab_worker': lab_worker, 'admin': user})
 
 @csrf_exempt
 @login_required(login_url='admin_login')
 def edit_pharmacist(request, pk):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        pharmacist = Pharmacist.objects.get(pharmacist_id=pk)
-        
-        if request.method == 'POST':
-            if 'featured_image' in request.FILES:
-                featured_image = request.FILES['featured_image']
-            else:
-                featured_image = "technician/user-default.png"
-                
-            name = request.POST.get('name')
-            email = request.POST.get('email')     
-            phone_number = request.POST.get('phone_number')
-            age = request.POST.get('age')  
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to edit pharmacists')
+        return redirect('admin-dashboard')
+
+    user = Admin_Information.objects.filter(user=request.user).first()
+    pharmacist = Pharmacist.objects.get(pharmacist_id=pk)
     
-            pharmacist.name = name
-            pharmacist.email = email
-            pharmacist.phone_number = phone_number
-            pharmacist.age = age
-            pharmacist.featured_image = featured_image
-    
-            pharmacist.save()
-            messages.success(request, 'Pharmacist updated!')
-            return redirect('pharmacist-list')
+    if request.method == 'POST':
+        if 'featured_image' in request.FILES:
+            featured_image = request.FILES['featured_image']
+        else:
+            featured_image = "technician/user-default.png"
+            
+        name = request.POST.get('name')
+        email = request.POST.get('email')     
+        phone_number = request.POST.get('phone_number')
+        age = request.POST.get('age')  
+
+        pharmacist.name = name
+        pharmacist.email = email
+        pharmacist.phone_number = phone_number
+        pharmacist.age = age
+        pharmacist.featured_image = featured_image
+
+        pharmacist.save()
+        messages.success(request, 'Pharmacist updated!')
+        return redirect('pharmacist-list')
         
     return render(request, 'hospital_admin/edit-pharmacist.html', {'pharmacist': pharmacist, 'admin': user})
 
@@ -827,16 +876,20 @@ def department_image_list(request,pk):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def register_doctor_list(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
-        doctors = Doctor_Information.objects.filter(register_status='Accepted')
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view registered doctors')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
+    doctors = Doctor_Information.objects.filter(register_status='Accepted')
     return render(request, 'hospital_admin/register-doctor-list.html', {'doctors': doctors, 'admin': user})
 
 @csrf_exempt
 @login_required(login_url='admin_login')
 def pending_doctor_list(request):
-    if request.user.is_hospital_admin:
-        user = Admin_Information.objects.get(user=request.user)
+    if not (request.user.is_hospital_admin or request.user.is_superuser):
+        messages.error(request, 'You are not authorized to view pending doctors')
+        return redirect('admin-dashboard')
+    user = Admin_Information.objects.filter(user=request.user).first()
     doctors = Doctor_Information.objects.filter(register_status='Pending')
     return render(request, 'hospital_admin/Pending-doctor-list.html', {'all': doctors, 'admin': user})
 
@@ -929,37 +982,39 @@ def reject_doctor(request,pk):
 @csrf_exempt
 @login_required(login_url='admin_login')
 def delete_department(request,pk):
-    if request.user.is_authenticated:
-        if request.user.is_hospital_admin:
-            department = hospital_department.objects.get(hospital_department_id=pk)
-            department.delete()
-            messages.success(request, 'Department Deleted!')
-            return redirect('hospital-list')
+    if not (request.user.is_authenticated and (request.user.is_hospital_admin or request.user.is_superuser)):
+        messages.error(request, 'You are not authorized to delete departments')
+        return redirect('admin-dashboard')
+    department = hospital_department.objects.get(hospital_department_id=pk)
+    department.delete()
+    messages.success(request, 'Department Deleted!')
+    return redirect('hospital-list')
 
 @login_required(login_url='admin_login')
 @csrf_exempt
 def edit_department(request,pk):
-    if request.user.is_authenticated:
-        if request.user.is_hospital_admin:
-            # old_featured_image = department.featured_image
-            department = hospital_department.objects.get(hospital_department_id=pk)
-            old_featured_image = department.featured_image
+    if not (request.user.is_authenticated and (request.user.is_hospital_admin or request.user.is_superuser)):
+        messages.error(request, 'You are not authorized to edit departments')
+        return redirect('admin-dashboard')
 
-            if request.method == 'POST':
-                if 'featured_image' in request.FILES:
-                    featured_image = request.FILES['featured_image']
-                else:
-                    featured_image = old_featured_image
+    department = hospital_department.objects.get(hospital_department_id=pk)
+    old_featured_image = department.featured_image
 
-                department_name = request.POST.get('department_name')
-                department.hospital_department_name = department_name
-                department.featured_image = featured_image
-                department.save()
-                messages.success(request, 'Department Updated!')
-                return redirect('hospital-list')
-                
-            context = {'department': department}
-            return render(request, 'hospital_admin/edit-hospital.html',context)
+    if request.method == 'POST':
+        if 'featured_image' in request.FILES:
+            featured_image = request.FILES['featured_image']
+        else:
+            featured_image = old_featured_image
+
+        department_name = request.POST.get('department_name')
+        department.hospital_department_name = department_name
+        department.featured_image = featured_image
+        department.save()
+        messages.success(request, 'Department Updated!')
+        return redirect('hospital-list')
+            
+    context = {'department': department}
+    return render(request, 'hospital_admin/edit-hospital.html',context)
 
 @csrf_exempt
 @login_required(login_url='admin_login')

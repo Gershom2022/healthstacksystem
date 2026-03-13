@@ -31,7 +31,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env('DEBUG')
+DEBUG = env.bool('DEBUG', default=False)
 
 ALLOWED_HOSTS = ['192.168.0.100', '127.0.0.1','5749-103-109-53-5.in.ngrok.io']
 # ALLOWED_HOSTS = ['mobile view', 'local host','ngrok -- keeps on changing']
@@ -152,15 +152,15 @@ STATICFILES_DIRS = [
 
 ### SSLCOMMERZ env variables
 #VARIABLE should be in capital letter.
-STORE_ID = env('STORE_ID')
-STORE_PASSWORD = env('STORE_PASSWORD')
-STORE_NAME = env('STORE_NAME')
+STORE_ID = env('STORE_ID', default='')
+STORE_PASSWORD = env('STORE_PASSWORD', default='')
+STORE_NAME = env('STORE_NAME', default='')
 
 ###Mailtrap env Variables
-SMTP_HOST = env('SMTP_HOST')
-SMTP_PORT = env('SMTP_PORT')
-SMTP_USER = env('SMTP_USER')
-SMTP_PASSWORD = env('SMTP_PASSWORD')
+SMTP_HOST = env('SMTP_HOST', default='smtp.mailtrap.io')
+SMTP_PORT = env.int('SMTP_PORT', default=2525)
+SMTP_USER = env('SMTP_USER', default='')
+SMTP_PASSWORD = env('SMTP_PASSWORD', default='')
 
 # EMAIL
 

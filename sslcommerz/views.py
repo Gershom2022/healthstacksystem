@@ -143,7 +143,14 @@ def ssl_payment_request(request, pk, id):
     response = sslcz.createSession(post_body)  # API response
     print(response)
 
-    return redirect(response['GatewayPageURL'])
+    gateway_url = response.get('GatewayPageURL')
+    if gateway_url:
+        return redirect(gateway_url)
+    # Fallback if gateway URL is missing or empty
+    return HttpResponse(
+        "Payment gateway URL not returned. Please check SSLCommerz configuration or try again later.",
+        status=502,
+    )
 
     # return render(request, 'checkout.html')
 
@@ -213,7 +220,14 @@ def ssl_payment_request_medicine(request, pk, id):
     response = sslcz.createSession(post_body)  # API response
     print(response)
 
-    return redirect(response['GatewayPageURL'])
+    gateway_url = response.get('GatewayPageURL')
+    if gateway_url:
+        return redirect(gateway_url)
+    # Fallback if gateway URL is missing or empty
+    return HttpResponse(
+        "Payment gateway URL not returned. Please check SSLCommerz configuration or try again later.",
+        status=502,
+    )
 
 
 @csrf_exempt
@@ -283,7 +297,14 @@ def ssl_payment_request_test(request, pk, id, pk2):
     response = sslcz.createSession(post_body)  # API response
     print(response)
 
-    return redirect(response['GatewayPageURL'])    
+    gateway_url = response.get('GatewayPageURL')
+    if gateway_url:
+        return redirect(gateway_url)
+    # Fallback if gateway URL is missing or empty
+    return HttpResponse(
+        "Payment gateway URL not returned. Please check SSLCommerz configuration or try again later.",
+        status=502,
+    )    
 
 @csrf_exempt
 def ssl_payment_success(request):
