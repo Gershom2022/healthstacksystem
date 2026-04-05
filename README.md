@@ -10,8 +10,8 @@
 
 ## Contributors
 
-- **Team Members:** [Mohammed Jawwadul Islam](https://www.linkedin.com/in/jawwadfida/), [Mohammad Fahad Al Rafi](https://www.linkedin.com/in/md-fahad-al-al-rafi-14b968111/), [Moumy Kabir](https://www.linkedin.com/in/pranto-podder-b78b97162/), [Pranto Podder](https://www.linkedin.com/in/aysha-siddika-577ba5224/), [Aysha Siddika](https://www.linkedin.com/in/moumy-kabir-156a0a232/), Nafisa Akhter
-- **Project Duration:** August 2022 - September 2022
+- **Team Members:**phoebe rael Gershom mosora Peter vincent , MARION SAMBU 
+- **Project Duration:*JAN 2026 -MARCH 2026
 
 ## Features
 
